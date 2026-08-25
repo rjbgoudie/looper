@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loop Bench — YouTube A–B looper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0B2239;
+    --navy-2:#0E2C48;
+    --panel:#103252;
+    --grid:rgba(120,180,220,0.09);
+    --chalk:#E8F1F8;
+    --chalk-dim:#8FB0C7;
+    --chalk-faint:#5E7f96;
+    --a:#F4B942;        /* start marker — amber grease pencil */
+    --b:#35C6D9;        /* end marker — cyan */
+    --region:rgba(53,198,217,0.14);
+    --line:rgba(178,205,224,0.22);
+    --white:#F6FBFF;
+    --err:#F27D72;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      linear-gradient(0deg,rgba(0,0,0,0.15),rgba(0,0,0,0.15)),
+      var(--navy);
+    color:var(--chalk);
+    font-family:"Space Grotesk",system-ui,sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    padding:28px 20px 64px;
+  }
+  .wrap{max-width:840px;margin:0 auto}
+
+  /* ---- Header ---- */
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:12px}
+  .mark{
+    font-family:"Space Mono",monospace;font-weight:700;font-size:13px;letter-spacing:2px;
+    color:var(--navy);background:var(--b);padding:4px 8px;border-radius:2px;
+  }
+  h1{font-size:22px;font-weight:700;letter-spacing:-0.02em;margin:0}
+  .tag{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:1px;color:var(--chalk-faint);text-transform:uppercase}
+
+  /* ---- URL bar ---- */
+  .loadbar{display:flex;gap:8px;margin-bottom:16px}
+  .loadbar input{
+    flex:1;min-width:0;background:var(--navy-2);border:1px solid var(--line);color:var(--chalk);
+    font-family:"Space Mono",monospace;font-size:14px;padding:13px 14px;border-radius:4px;outline:none;
+  }
+  .loadbar input::placeholder{color:var(--chalk-faint)}
+  .loadbar input:focus{border-color:var(--b);box-shadow:0 0 0 3px rgba(53,198,217,0.15)}
+  button{font-family:"Space Mono",monospace;cursor:pointer;color:var(--chalk);background:transparent;
+    border:1px solid var(--line);border-radius:4px;font-size:12px;letter-spacing:1px;text-transform:uppercase;
+    padding:0 16px;transition:background .12s,border-color .12s,color .12s;}
+  button:hover:not(:disabled){border-color:var(--b);color:var(--white)}
+  button:focus-visible{outline:2px solid var(--b);outline-offset:2px}
+  button:disabled{opacity:.35;cursor:default}
+  .btn-primary{background:var(--b);color:var(--navy);border-color:var(--b);font-weight:700}
+  .btn-primary:hover:not(:disabled){background:var(--white);border-color:var(--white);color:var(--navy)}
+  .err{color:var(--err);font-family:"Space Mono",monospace;font-size:12px;margin:-8px 0 14px;min-height:16px}
+
+  /* ---- Video ---- */
+  .stage{position:relative;aspect-ratio:16/9;width:100%;background:var(--navy-2);
+    border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-bottom:22px}
+  .stage iframe,.stage #player{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--chalk-faint);
+    text-align:center;padding:20px;font-family:"Space Mono",monospace;font-size:13px;letter-spacing:.5px}
+  .placeholder svg{opacity:.4}
+
+  /* ---- Loop bench (signature) ---- */
+  .bench{border:1px solid var(--line);border-radius:6px;padding:22px 22px 20px;
+    background:
+      repeating-linear-gradient(0deg,transparent,transparent 23px,var(--grid) 23px,var(--grid) 24px),
+      repeating-linear-gradient(90deg,transparent,transparent 23px,var(--grid) 23px,var(--grid) 24px),
+      var(--panel);
+  }
+  .bench.disabled{opacity:.4;pointer-events:none;filter:saturate(.4)}
+
+  .track-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:34px}
+  .loop-count{font-family:"Space Mono",monospace;font-size:12px;letter-spacing:1.5px;color:var(--chalk-dim)}
+  .loop-count b{color:var(--b);font-size:15px}
+  .loop-count.pulse{animation:pulse .4s ease}
+  @keyframes pulse{0%{color:var(--white)}100%{color:var(--chalk-dim)}}
+  .seg-len{font-family:"Space Mono",monospace;font-size:12px;letter-spacing:1px;color:var(--chalk-dim);text-align:right}
+  .seg-len b{color:var(--white)}
+
+  /* the track */
+  .track{position:relative;height:16px;margin:6px 0 6px;touch-action:none;cursor:pointer}
+  .rail{position:absolute;top:6px;left:0;right:0;height:4px;background:var(--navy);border-radius:2px}
+  .region{position:absolute;top:5px;height:6px;background:var(--region);border-top:1px dashed var(--b);border-bottom:1px dashed var(--b)}
+  .region.flash{animation:flash .45s ease}
+  @keyframes flash{0%{background:rgba(53,198,217,0.45)}100%{background:var(--region)}}
+  .playhead{position:absolute;top:-6px;width:2px;height:28px;background:var(--white);box-shadow:0 0 8px rgba(246,251,255,.7);pointer-events:none;transform:translateX(-1px)}
+  /* A/B handles drawn as engineering extension lines with a grabbable knob */
+  .handle{position:absolute;top:-16px;width:1px;height:48px;transform:translateX(-0.5px);cursor:ew-resize;touch-action:none}
+  .handle .stem{position:absolute;left:0;top:0;width:1px;height:100%}
+  .handle .knob{position:absolute;left:50%;transform:translateX(-50%);top:-4px;
+    font-family:"Space Mono",monospace;font-weight:700;font-size:11px;line-height:1;
+    padding:4px 6px;border-radius:3px;color:var(--navy);white-space:nowrap}
+  .handle.a .stem{background:var(--a)} .handle.a .knob{background:var(--a)}
+  .handle.b .stem{background:var(--b)} .handle.b .knob{background:var(--b)}
+  .handle:focus-visible{outline:none}
+  .handle:focus-visible .knob{outline:2px solid var(--white);outline-offset:2px}
+
+  .ticks{display:flex;justify-content:space-between;font-family:"Space Mono",monospace;font-size:11px;color:var(--chalk-faint);margin-top:12px}
+
+  /* readouts */
+  .readouts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:24px 0 18px}
+  .readout{background:var(--navy-2);border:1px solid var(--line);border-radius:5px;padding:12px 14px}
+  .readout .lbl{font-family:"Space Mono",monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .readout .lbl .dot{width:9px;height:9px;border-radius:2px}
+  .readout.a .dot{background:var(--a)} .readout.b .dot{background:var(--b)}
+  .readout .val{font-family:"Space Mono",monospace;font-size:26px;font-weight:700;letter-spacing:-.01em}
+  .readout .row{display:flex;gap:6px;margin-top:10px}
+  .readout .row button{flex:1;padding:7px 0;font-size:11px}
+  .set{color:var(--navy)!important;font-weight:700}
+  .readout.a .set{background:var(--a);border-color:var(--a)}
+  .readout.b .set{background:var(--b);border-color:var(--b)}
+
+  /* transport */
+  .transport{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:4px}
+  .play{width:56px;height:56px;border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none;padding:0}
+  .transport .now{font-family:"Space Mono",monospace;font-size:14px;color:var(--chalk-dim);margin-left:2px}
+  .transport .now b{color:var(--chalk)}
+  .spacer{flex:1}
+  .speed{display:flex;gap:0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .speed button{border:0;border-radius:0;border-left:1px solid var(--line);padding:9px 11px;font-size:11px}
+  .speed button:first-child{border-left:0}
+  .speed button.active{background:var(--a);color:var(--navy);font-weight:700}
+  .speed button.active:hover{color:var(--navy)}
+
+  .keys{font-family:"Space Mono",monospace;font-size:11px;color:var(--chalk-faint);margin-top:18px;line-height:1.9;letter-spacing:.3px}
+  .keys kbd{background:var(--navy-2);border:1px solid var(--line);border-radius:3px;padding:1px 6px;color:var(--chalk-dim);font-size:10px}
+
+  @media (max-width:560px){
+    .readouts{grid-template-columns:1fr}
+    h1{font-size:19px}
+    .transport .now{width:100%;order:5;margin:2px 0 0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="mark">A→B</span>
+      <div>
+        <h1>Loop Bench</h1>
+        <div class="tag">Mark two points · drill the segment</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="loadbar">
+    <input id="url" type="text" placeholder="Paste a YouTube link — watch, share, shorts, or embed"
+           autocomplete="off" spellcheck="false" aria-label="YouTube URL">
+    <button id="load" class="btn-primary">Load</button>
+  </div>
+  <div class="err" id="err" role="alert"></div>
+
+  <div class="stage">
+    <div id="player"></div>
+    <div class="placeholder" id="placeholder">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+      <span>Load a video to start looping</span>
+    </div>
+  </div>
+
+  <section class="bench disabled" id="bench" aria-label="Loop controls">
+    <div class="track-head">
+      <div class="loop-count" id="loopCount">LOOPS&nbsp;&nbsp;<b>0</b></div>
+      <div class="seg-len" id="segLen">segment&nbsp;&nbsp;<b>—</b></div>
+    </div>
+
+    <div class="track" id="track">
+      <div class="rail"></div>
+      <div class="region" id="region"></div>
+      <div class="handle a" id="handleA" tabindex="0" role="slider" aria-label="Loop start (A)"
+           aria-valuemin="0" aria-valuenow="0"><div class="stem"></div><div class="knob">A</div></div>
+      <div class="handle b" id="handleB" tabindex="0" role="slider" aria-label="Loop end (B)"
+           aria-valuemin="0" aria-valuenow="0"><div class="stem"></div><div class="knob">B</div></div>
+      <div class="playhead" id="playhead" style="left:0"></div>
+    </div>
+    <div class="ticks"><span id="tickStart">00:00.0</span><span id="tickEnd">00:00.0</span></div>
+
+    <div class="readouts">
+      <div class="readout a">
+        <div class="lbl"><span class="dot"></span>Start · A</div>
+        <div class="val" id="valA">00:00.0</div>
+        <div class="row">
+          <button id="aMinus">−0.5s</button>
+          <button id="aSet" class="set">Set A</button>
+          <button id="aPlus">+0.5s</button>
+        </div>
+      </div>
+      <div class="readout b">
+        <div class="lbl"><span class="dot"></span>End · B</div>
+        <div class="val" id="valB">00:00.0</div>
+        <div class="row">
+          <button id="bMinus">−0.5s</button>
+          <button id="bSet" class="set">Set B</button>
+          <button id="bPlus">+0.5s</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="play" id="play" aria-label="Play or pause">▶</button>
+      <div class="now">at&nbsp;<b id="nowTime">00:00.0</b></div>
+      <div class="spacer"></div>
+      <button id="reset">Reset A–B</button>
+      <div class="speed" id="speed" role="group" aria-label="Playback speed">
+        <button data-rate="0.25">.25×</button>
+        <button data-rate="0.5">.5×</button>
+        <button data-rate="0.75">.75×</button>
+        <button data-rate="1" class="active">1×</button>
+        <button data-rate="1.5">1.5×</button>
+      </div>
+    </div>
+
+    <div class="keys">
+      <kbd>space</kbd> play/pause &nbsp;·&nbsp; <kbd>A</kbd> set start &nbsp;·&nbsp; <kbd>B</kbd> set end &nbsp;·&nbsp;
+      <kbd>←</kbd><kbd>→</kbd> nudge start &nbsp;·&nbsp; <kbd>R</kbd> reset
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ---------------- YouTube IFrame API bootstrap ---------------- */
+let apiReady = false, pendingId = null, pendingStart = 0;
+(function(){ const s=document.createElement('script'); s.src="https://www.youtube.com/iframe_api"; document.head.appendChild(s); })();
+window.onYouTubeIframeAPIReady = function(){
+  apiReady = true;
+  if (pendingId) createPlayer(pendingId, pendingStart);
+};
+
+/* ---------------- State ---------------- */
+let player = null;
+let duration = 0;
+let A = 0, B = 0;
+let looping = true;
+let loops = 0;
+let rate = 1;
+let ticker = null;
+let ready = false;
+
+/* ---------------- Elements ---------------- */
+const $ = id => document.getElementById(id);
+const bench=$('bench'), track=$('track'), region=$('region'),
+      handleA=$('handleA'), handleB=$('handleB'), playhead=$('playhead'),
+      valA=$('valA'), valB=$('valB'), nowTime=$('nowTime'),
+      loopCount=$('loopCount'), segLen=$('segLen'),
+      tickStart=$('tickStart'), tickEnd=$('tickEnd'),
+      playBtn=$('play'), errBox=$('err'), placeholder=$('placeholder');
+
+/* ---------------- Time helpers ---------------- */
+function fmt(t){
+  if(!isFinite(t)||t<0) t=0;
+  const h=Math.floor(t/3600), m=Math.floor((t%3600)/60), s=Math.floor(t%60), d=Math.floor((t*10)%10);
+  const mm=String(m).padStart(2,'0'), ss=String(s).padStart(2,'0');
+  return h>0 ? `${h}:${mm}:${ss}.${d}` : `${mm}:${ss}.${d}`;
+}
+function parseTs(t){
+  if(/^\d+$/.test(t)) return parseInt(t,10);
+  let s=0; const h=t.match(/(\d+)h/), m=t.match(/(\d+)m/), sec=t.match(/(\d+)s/);
+  if(h)s+=+h[1]*3600; if(m)s+=+m[1]*60; if(sec)s+=+sec[1];
+  return s||0;
+}
+
+/* ---------------- URL parsing ---------------- */
+function parseYouTube(input){
+  input=(input||'').trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(input)) return {id:input,start:0};
+  let url; try{ url=new URL(input); }catch(e){ return null; }
+  const host=url.hostname.replace(/^www\./,'');
+  let id=null;
+  if(host==='youtu.be'){ id=url.pathname.slice(1).split('/')[0]; }
+  else if(host.endsWith('youtube.com')||host.endsWith('youtube-nocookie.com')){
+    const p=url.pathname;
+    if(p==='/watch') id=url.searchParams.get('v');
+    else if(p.startsWith('/embed/')) id=p.split('/')[2];
+    else if(p.startsWith('/shorts/')) id=p.split('/')[2];
+    else if(p.startsWith('/live/')) id=p.split('/')[2];
+    else if(p.startsWith('/v/')) id=p.split('/')[2];
+  }
+  if(!id||!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+  let start=0;
+  const raw=url.searchParams.get('t')||url.searchParams.get('start')||(url.hash.match(/t=([^&]+)/)||[])[1];
+  if(raw) start=parseTs(raw);
+  return {id,start};
+}
+
+/* ---------------- Load flow ---------------- */
+function load(){
+  const parsed=parseYouTube($('url').value);
+  if(!parsed){
+    errBox.textContent="That doesn't look like a YouTube link. Paste a watch, share, shorts, or embed URL.";
+    return;
+  }
+  errBox.textContent="";
+  pendingStart=parsed.start;
+  if(!apiReady){ pendingId=parsed.id; return; }
+  if(player){ player.loadVideoById(parsed.id, parsed.start); }
+  else { createPlayer(parsed.id, parsed.start); }
+}
+
+function createPlayer(id, start){
+  placeholder.style.display='none';
+  player=new YT.Player('player',{
+    videoId:id,
+    playerVars:{rel:0, modestbranding:1, playsinline:1, start:Math.floor(start||0)},
+    events:{ onReady:onReady, onStateChange:onState }
+  });
+}
+
+function onReady(){
+  duration=player.getDuration()||0;
+  A = Math.min(pendingStart||0, duration);
+  B = duration;
+  loops=0;
+  ready=true;
+  rate=1;
+  player.setPlaybackRate(1);
+  document.querySelectorAll('#speed button').forEach(b=>b.classList.toggle('active', b.dataset.rate==='1'));
+  bench.classList.remove('disabled');
+  syncAll();
+  startTicker();
+}
+
+function onState(e){
+  if(e.data===YT.PlayerState.PLAYING){ playBtn.textContent='❚❚'; if(!duration){duration=player.getDuration()||0; syncAll();} }
+  else if(e.data===YT.PlayerState.PAUSED){ playBtn.textContent='▶'; }
+  else if(e.data===YT.PlayerState.ENDED){
+    playBtn.textContent='▶';
+    if(looping){ player.seekTo(A,true); player.playVideo(); registerLoop(); }
+  }
+}
+
+/* ---------------- Loop engine ---------------- */
+function startTicker(){
+  if(ticker) clearInterval(ticker);
+  ticker=setInterval(tick, 25);
+}
+function tick(){
+  if(!ready||!player||typeof player.getCurrentTime!=='function') return;
+  const t=player.getCurrentTime();
+  // wrap when we reach B
+  if(looping && B>A && t>=B-0.02){
+    player.seekTo(A,true);
+    registerLoop();
+    updatePlayhead(A);
+    return;
+  }
+  updatePlayhead(t);
+  nowTime.textContent=fmt(t);
+}
+function registerLoop(){
+  loops++;
+  loopCount.innerHTML='LOOPS&nbsp;&nbsp;<b>'+loops+'</b>';
+  loopCount.classList.remove('pulse'); void loopCount.offsetWidth; loopCount.classList.add('pulse');
+  region.classList.remove('flash'); void region.offsetWidth; region.classList.add('flash');
+}
+
+/* ---------------- Sync UI ---------------- */
+function pct(t){ return duration>0 ? Math.max(0,Math.min(1,t/duration))*100 : 0; }
+function syncAll(){
+  const pa=pct(A), pb=pct(B);
+  handleA.style.left=pa+'%';
+  handleB.style.left=pb+'%';
+  region.style.left=pa+'%';
+  region.style.width=Math.max(0,pb-pa)+'%';
+  valA.textContent=fmt(A);
+  valB.textContent=fmt(B);
+  handleA.setAttribute('aria-valuenow',A.toFixed(1));
+  handleB.setAttribute('aria-valuenow',B.toFixed(1));
+  handleA.setAttribute('aria-valuemax',duration.toFixed(1));
+  handleB.setAttribute('aria-valuemax',duration.toFixed(1));
+  tickStart.textContent=fmt(0);
+  tickEnd.textContent=fmt(duration);
+  segLen.innerHTML='segment&nbsp;&nbsp;<b>'+fmt(B-A)+'</b>';
+}
+function updatePlayhead(t){ playhead.style.left=pct(t)+'%'; }
+
+function setA(v){ A=Math.max(0,Math.min(v, B-0.1)); syncAll(); }
+function setB(v){ B=Math.min(duration,Math.max(v, A+0.1)); syncAll(); }
+
+/* ---------------- Track dragging ---------------- */
+function timeFromClientX(clientX){
+  const r=track.getBoundingClientRect();
+  const f=Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  return f*duration;
+}
+function dragHandle(handle, isA){
+  handle.addEventListener('pointerdown',e=>{
+    if(!ready) return;
+    e.preventDefault(); handle.setPointerCapture(e.pointerId);
+    const move=ev=>{ const t=timeFromClientX(ev.clientX); isA?setA(t):setB(t); };
+    const up=ev=>{ handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove',move); handle.removeEventListener('pointerup',up); };
+    handle.addEventListener('pointermove',move); handle.addEventListener('pointerup',up);
+  });
+  // keyboard on handle
+  handle.addEventListener('keydown',e=>{
+    if(!ready) return;
+    let step=e.shiftKey?1:0.1;
+    if(e.key==='ArrowLeft'){ isA?setA(A-step):setB(B-step); e.preventDefault(); }
+    else if(e.key==='ArrowRight'){ isA?setA(A+step):setB(B+step); e.preventDefault(); }
+  });
+}
+dragHandle(handleA,true); dragHandle(handleB,false);
+
+// click on the rail seeks
+track.addEventListener('pointerdown',e=>{
+  if(!ready) return;
+  if(e.target.closest('.handle')) return;
+  const t=timeFromClientX(e.clientX);
+  player.seekTo(t,true); updatePlayhead(t); nowTime.textContent=fmt(t);
+});
+
+/* ---------------- Controls ---------------- */
+$('load').addEventListener('click',load);
+$('url').addEventListener('keydown',e=>{ if(e.key==='Enter') load(); });
+
+playBtn.addEventListener('click',togglePlay);
+function togglePlay(){
+  if(!ready) return;
+  const st=player.getPlayerState();
+  if(st===YT.PlayerState.PLAYING) player.pauseVideo();
+  else player.playVideo();
+}
+
+$('aSet').addEventListener('click',()=>{ if(ready) setA(player.getCurrentTime()); });
+$('bSet').addEventListener('click',()=>{ if(ready) setB(player.getCurrentTime()); });
+$('aMinus').addEventListener('click',()=>setA(A-0.5));
+$('aPlus').addEventListener('click',()=>setA(A+0.5));
+$('bMinus').addEventListener('click',()=>setB(B-0.5));
+$('bPlus').addEventListener('click',()=>setB(B+0.5));
+$('reset').addEventListener('click',()=>{ if(ready){ setA(0); setB(duration); loops=0; loopCount.innerHTML='LOOPS&nbsp;&nbsp;<b>0</b>'; }});
+
+document.querySelectorAll('#speed button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    if(!ready) return;
+    rate=parseFloat(b.dataset.rate);
+    player.setPlaybackRate(rate);
+    document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+  });
+});
+
+/* ---------------- Global keyboard ---------------- */
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  if(e.target.classList.contains('handle')) return; // handle owns arrows
+  if(!ready) return;
+  switch(e.key){
+    case ' ': e.preventDefault(); togglePlay(); break;
+    case 'a': case 'A': setA(player.getCurrentTime()); break;
+    case 'b': case 'B': setB(player.getCurrentTime()); break;
+    case 'r': case 'R': setA(0); setB(duration); break;
+    case 'ArrowLeft': e.preventDefault(); setA(A-(e.shiftKey?1:0.1)); break;
+    case 'ArrowRight': e.preventDefault(); setA(A+(e.shiftKey?1:0.1)); break;
+  }
+});
+</script>
+</body>
+</html>
