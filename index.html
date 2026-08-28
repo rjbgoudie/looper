@@ -371,11 +371,12 @@ function onReady(){
   bench.classList.remove('disabled');
   syncAll();
   writeHash();
+  updateTitle(0);
   startTicker();
 }
 
 function onState(e){
-  if(e.data===YT.PlayerState.PLAYING){ playBtn.textContent='❚❚'; if(!duration){duration=player.getDuration()||0; syncAll();} }
+  if(e.data===YT.PlayerState.PLAYING){ playBtn.textContent='❚❚'; updateTitle(0); if(!duration){duration=player.getDuration()||0; syncAll();} }
   else if(e.data===YT.PlayerState.PAUSED){ playBtn.textContent='▶'; }
   else if(e.data===YT.PlayerState.ENDED){
     playBtn.textContent='▶';
@@ -427,6 +428,16 @@ function syncAll(){
   segLen.innerHTML='segment&nbsp;&nbsp;<b>'+fmt(B-A)+'</b>';
 }
 function updatePlayhead(t){ playhead.style.left=pct(t)+'%'; }
+
+/* ---------------- Page title reflects the loaded video ---------------- */
+const DEFAULT_TITLE='Loop Bench — YouTube A–B looper';
+function updateTitle(retries){
+  if(!player||typeof player.getVideoData!=='function') return;
+  let t='';
+  try{ const d=player.getVideoData(); t=d&&d.title?d.title:''; }catch(e){}
+  if(t){ document.title=t+' — Loop Bench'; }
+  else if((retries||0)<8){ setTimeout(()=>updateTitle((retries||0)+1), 400); } // title lags metadata sometimes
+}
 
 function setA(v){ A=Math.max(0,Math.min(v, B-0.1)); syncAll(); writeHash(); }
 function setB(v){ B=Math.min(duration,Math.max(v, A+0.1)); syncAll(); writeHash(); }
