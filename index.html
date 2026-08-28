@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Loop Bench — YouTube A–B looper</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -218,6 +219,7 @@
       <button class="play" id="play" aria-label="Play or pause">▶</button>
       <div class="now">at&nbsp;<b id="nowTime">00:00.0</b></div>
       <div class="spacer"></div>
+      <button id="copyLink">Copy link</button>
       <button id="reset">Reset A–B</button>
       <div class="speed" id="speed" role="group" aria-label="Playback speed">
         <button data-rate="0.25">.25×</button>
@@ -254,6 +256,28 @@ let loops = 0;
 let rate = 1;
 let ticker = null;
 let ready = false;
+let currentId = null;          // id of the loaded video (for the URL hash)
+let pendingA = null, pendingB = null;  // region to restore once the player is ready
+
+/* ---------------- URL hash (bookmarkable state) ---------------- */
+let hashTimer = null;
+function writeHash(){
+  if(!currentId) return;
+  clearTimeout(hashTimer);
+  hashTimer=setTimeout(()=>{                       // debounce so dragging doesn't spam history
+    const parts=['v='+currentId,'a='+A.toFixed(1),'b='+B.toFixed(1)];
+    try{ history.replaceState(null,'','#'+parts.join('&')); }catch(e){}
+  },120);
+}
+function readHash(){
+  const h=location.hash.replace(/^#/,'');
+  if(!h) return null;
+  const p=new URLSearchParams(h);
+  const v=p.get('v');
+  if(!v||!/^[A-Za-z0-9_-]{11}$/.test(v)) return null;
+  const a=parseFloat(p.get('a')), b=parseFloat(p.get('b'));
+  return {id:v, a:isFinite(a)?a:null, b:isFinite(b)?b:null};
+}
 
 /* ---------------- Elements ---------------- */
 const $ = id => document.getElementById(id);
@@ -309,25 +333,36 @@ function load(){
     return;
   }
   errBox.textContent="";
-  pendingStart=parsed.start;
-  if(!apiReady){ pendingId=parsed.id; return; }
-  if(player){ player.loadVideoById(parsed.id, parsed.start); }
-  else { createPlayer(parsed.id, parsed.start); }
+  applyLoad(parsed.id, parsed.start, null, null);
+}
+
+// Centralised loader: id + where to start playback + optional A/B region to restore.
+function applyLoad(id, start, a, b){
+  currentId=id;
+  pendingStart = a!=null ? a : (start||0);   // start at A when a bookmarked region exists
+  pendingA=a; pendingB=b;
+  ready=false;
+  if(!apiReady){ pendingId=id; return; }
+  if(player){ player.loadVideoById(id, pendingStart); }
+  else { createPlayer(id, pendingStart); }
 }
 
 function createPlayer(id, start){
   placeholder.style.display='none';
   player=new YT.Player('player',{
     videoId:id,
-    playerVars:{rel:0, modestbranding:1, playsinline:1, start:Math.floor(start||0)},
+    playerVars:{rel:0, modestbranding:1, playsinline:1, start:Math.floor(start||0),
+      origin: location.origin && location.origin!=='null' ? location.origin : undefined},
     events:{ onReady:onReady, onStateChange:onState }
   });
 }
 
 function onReady(){
+  try{ const f=player.getIframe(); if(f) f.setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(e){}
   duration=player.getDuration()||0;
-  A = Math.min(pendingStart||0, duration);
-  B = duration;
+  A = pendingA!=null ? Math.max(0,Math.min(pendingA,duration)) : Math.min(pendingStart||0,duration);
+  B = pendingB!=null ? Math.min(duration,Math.max(pendingB,A+0.1)) : duration;
+  pendingA=pendingB=null;
   loops=0;
   ready=true;
   rate=1;
@@ -335,6 +370,7 @@ function onReady(){
   document.querySelectorAll('#speed button').forEach(b=>b.classList.toggle('active', b.dataset.rate==='1'));
   bench.classList.remove('disabled');
   syncAll();
+  writeHash();
   startTicker();
 }
 
@@ -392,8 +428,8 @@ function syncAll(){
 }
 function updatePlayhead(t){ playhead.style.left=pct(t)+'%'; }
 
-function setA(v){ A=Math.max(0,Math.min(v, B-0.1)); syncAll(); }
-function setB(v){ B=Math.min(duration,Math.max(v, A+0.1)); syncAll(); }
+function setA(v){ A=Math.max(0,Math.min(v, B-0.1)); syncAll(); writeHash(); }
+function setB(v){ B=Math.min(duration,Math.max(v, A+0.1)); syncAll(); writeHash(); }
 
 /* ---------------- Track dragging ---------------- */
 function timeFromClientX(clientX){
@@ -472,6 +508,33 @@ document.addEventListener('keydown',e=>{
     case 'ArrowRight': e.preventDefault(); setA(A+(e.shiftKey?1:0.1)); break;
   }
 });
+
+/* ---------------- Copy link ---------------- */
+$('copyLink').addEventListener('click',()=>{
+  const btn=$('copyLink'), label=btn.textContent;
+  const done=()=>{ btn.textContent='Copied!'; setTimeout(()=>btn.textContent=label,1400); };
+  const fail=()=>{ btn.textContent='Copy failed'; setTimeout(()=>btn.textContent=label,1400); };
+  const url=location.href;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done,fail);
+  }else{
+    const ta=document.createElement('textarea'); ta.value=url; document.body.appendChild(ta);
+    ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ fail(); } ta.remove();
+  }
+});
+
+/* ---------------- Boot from #hash & respond to navigation ---------------- */
+function bootFromHash(){
+  const s=readHash();
+  if(!s) return;
+  $('url').value='https://youtu.be/'+s.id;
+  applyLoad(s.id, s.a!=null?s.a:0, s.a, s.b);
+}
+window.addEventListener('hashchange',()=>{           // fires on manual edits / back-forward, not our own writes
+  const s=readHash();
+  if(s && s.id!==currentId) bootFromHash();
+});
+bootFromHash();
 </script>
 </body>
 </html>
